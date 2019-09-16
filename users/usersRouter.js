@@ -1,67 +1,65 @@
 const express = require('express');
-
+const helmet = require('helmet');
+const cors = require('cors');
+const bcrypt = require('bcrypt');
 
 const db = require('../data/dbConfig');
+const Users = require('./users-model');
+const restricted = require('../auth/restricted-middleware');
 
+const server = express();
 
-const router = express.Router();
+server.use(helmet());
+server.use(express.json());
+server.use(cors());
 
+server.get('/', (req, res) => {
+    res.send("It's alive!");
+});
 
-router.post('/', (req, res) => {
-    const postData = req.body;
+server.post('/api/register', (req, res) => {
+    let { email, password } = req.body;
 
-    db('users')
-        .insert(postData, 'email', 'password')
-        .then(([email, password]) => {
-            db('cars')
-                .where({ email, password })
-                .first()
-                .then(users => {
-                    res.status(200).json(users);
-                });
+    const hash = bcrypt.hashSync(password, 8);
+
+    Users.add({ email, password: hash })
+        .then(saved => {
+            res.status(201).json(saved);
         })
-        .catch(err => {
-            res.json(err);
+        .catch(error => {
+            res.status(500).json(error);
         });
 });
 
+server.post('/api/login', (req, res) => {
+    let { email, password } = req.body;
 
+    Users.findBy({ email })
+        .first()
+        .then(user => {
+            if (user && bcrypt.compareSync(password, user.password)) {
+                res.status(200).json({ message: `Welcome ${user.email}!` });
+            } else {
+                res.status(401).json({ message: 'You cannot pass!' });
+            }
+        })
+        .catch(error => {
+            res.status(500).json(error);
+        });
+});
 
-router.get('/', (req, res) => {
-    db('users')
-        .select('id', 'email', 'password')
+server.get('/api/users', restricted, (req, res) => {
+    Users.find()
         .then(users => {
-            res.status(200).json(users);
+            res.json(users);
         })
-        .catch(err => {
-            res.json(err);
-        });
+        .catch(err => res.send(err));
 });
 
-router.put('/:id', (req, res) => {
-    const changes = req.body;
-    db('users')
-        .where('id', req.params.id)
-        .update(changes)
-        .then(count => {
-            res.status(200).json({ message: `updated ${count} record` });
-        })
-        .catch(err => {
-            res.json(err);
-        });
+server.get('/hash', (req, res) => {
+    const name = req.query.name;
+
+    // hash the name
+    const hash = bcrypt.hashSync(name, 8); // use bcryptjs to hash the name
+    res.send(`the hash for ${name} is ${hash}`);
 });
-
-router.delete('/:id', (req, res) => {
-
-    db('users')
-        .where({ id: req.params.id })
-        .del()
-        .then(count => {
-            res.status(200).json({ message: `deleted ${count} records` });
-        })
-        .catch(err => {
-            res.json(err);
-        });
-});
-
-module.exports = router;
